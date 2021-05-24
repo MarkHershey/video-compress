@@ -1,5 +1,6 @@
 import multiprocessing
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -17,13 +18,10 @@ def compress_single(job: Tuple[str, str]) -> Union[bool, str]:
     out_format = out_ext[1:]
 
     # ref: https://unix.stackexchange.com/a/38380
-    # '-loglevel warning' Show all warnings and errors. Any message related to possibly incorrect or unexpected events will be shown.
-    # '-y' Overwrite output files without asking.
-    completed = subprocess.run(
-        f'ffmpeg -loglevel warning -y -i "{in_file}" -vcodec libx265 -f {out_format} -crf 28 "{tmp_outfile}"',
-        shell=True,
-        # stdout=subprocess.PIPE,
+    args = shlex.split(
+        f'ffmpeg -loglevel warning -y -i "{in_file}" -vcodec libx265 -f {out_format} -crf 28 "{tmp_outfile}"'
     )
+    completed = subprocess.run(args, stdout=subprocess.DEVNULL)
 
     failed = True if completed.returncode != 0 else False
     if failed:
@@ -78,7 +76,7 @@ def batch_compress(
     logger.debug(f"Number of compression jobs pending: {len(validated_job_list)}")
     logger.debug(f"Number of parallel workers to be used: {num_workers}")
 
-    start = str(input("Start compression? (y/n)")).strip().lower()
+    start = str(input("Start compression? (y/n) ")).strip().lower()
     if start != "y":
         logger.error("Operation aborted by instruction.")
         return
