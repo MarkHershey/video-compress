@@ -1,20 +1,26 @@
 import multiprocessing
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import List, Tuple, Union
 
-from markkk.file import safe_rename
 from markkk.logger import logger
 
 
-def compress_single(in_file: str, out_file: str) -> Union[bool, str]:
-    # ref: https://unix.stackexchange.com/a/38380
+def compress_single(job: Tuple[str, str]) -> Union[bool, str]:
+    in_file, out_file = job
     assert Path(in_file).is_file()
     tmp_outfile = out_file + ".part"
 
+    out_ext: str = Path(out_file).suffix
+    out_format = out_ext[1:]
+
+    # ref: https://unix.stackexchange.com/a/38380
+    # '-loglevel warning' Show all warnings and errors. Any message related to possibly incorrect or unexpected events will be shown.
+    # '-y' Overwrite output files without asking.
     completed = subprocess.run(
-        f'ffmpeg -i "{in_file}" -vcodec libx265 -crf 28 "{tmp_outfile}"',
+        f'ffmpeg -loglevel warning -y -i "{in_file}" -vcodec libx265 -f {out_format} -crf 28 "{tmp_outfile}"',
         shell=True,
         # stdout=subprocess.PIPE,
     )
@@ -25,7 +31,7 @@ def compress_single(in_file: str, out_file: str) -> Union[bool, str]:
         return f"Failed: {in_file}"
     else:
         logger.debug(f"Succeeded compress job: ({in_file}) -> ({out_file})")
-        safe_rename(tmp_outfile, out_file)
+        shutil.move(src=tmp_outfile, dst=out_file)
         return True
 
 
@@ -36,8 +42,10 @@ def batch_compress(
     overwrite: bool = False,
     num_workers: int = None,
 ) -> None:
-    if not isinstance(num_workers, int) and num_workers > 0:
+    if not isinstance(num_workers, int):
         num_workers = os.cpu_count()
+    else:
+        assert num_workers > 0
 
     in_dir: Path = Path(in_dir).resolve()
     assert in_dir.is_dir()
@@ -69,8 +77,8 @@ def batch_compress(
 
     logger.debug(f"Number of compression jobs pending: {len(validated_job_list)}")
     logger.debug(f"Number of parallel workers to be used: {num_workers}")
-    start = str(input("Start compression? (y/n)")).strip()
 
+    start = str(input("Start compression? (y/n)")).strip().lower()
     if start != "y":
         logger.error("Operation aborted by instruction.")
         return
@@ -78,13 +86,21 @@ def batch_compress(
     pool = multiprocessing.Pool(num_workers)
     result = pool.map(compress_single, validated_job_list)
 
-    for i in result:
-        if i != True:
-            logger.error(i)
+    while True in result:
+        result.remove(True)
+
+    if result:
+        logger.error("----- Failed job list as follows -----")
+        print(result)
+    else:
+        logger.debug("----- All job completed successfully -----")
 
 
 if __name__ == "__main__":
-    in_dir = ""
-    out_dir = ""
-    os.makedirs(out_dir)
+    in_dir = "REPLACE_ME"
+    out_dir = "REPLACE_ME"
+
+    if not Path(out_dir).is_dir():
+        os.makedirs(out_dir)
+
     batch_compress(in_dir, out_dir)
